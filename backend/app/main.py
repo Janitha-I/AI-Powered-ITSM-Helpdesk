@@ -108,9 +108,28 @@ async def intake(request: TextRequest) -> dict[str, Any]:
     return {"ticket": serializable_ticket(created), "classification": details, "answer": answer, "model": model, "sources": matches}
 
 
+
 @app.post("/api/chat")
 async def chat(request: TextRequest) -> dict[str, Any]:
+    print("CHAT API CALLED:", request.message, flush=True)
+
     matches = await retrieve_knowledge(request.message)
+
+    print("KNOWLEDGE MATCHES:", len(matches), flush=True)
+
+    answer, model = await generate_grounded_answer(
+        request.message, matches
+    )
+
+    print("FINAL MODEL:", model, flush=True)
+
+    return {
+        "answer": answer,
+        "model": model,
+        "sources": matches,
+        "confidence": matches[0]["score"] if matches else 0
+    }
+
     answer, model = await generate_grounded_answer(request.message, matches)
     return {"answer": answer, "model": model, "sources": matches, "confidence": matches[0]["score"] if matches else 0}
 
