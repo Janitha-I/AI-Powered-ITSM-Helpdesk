@@ -30,6 +30,7 @@ async function api(path, options = {}) {
 
 function App() {
   const [page, setPage] = useState('overview');
+  const [selectedTicket, setSelectedTicket] = useState(null);
   const [dashboard, setDashboard] = useState(null);
   const [health, setHealth] = useState(null);
   const [notice, setNotice] = useState('');
@@ -121,6 +122,7 @@ function App() {
   }
 
   const openPage = (id) => { setPage(id); setNotice(''); };
+  const openTicket = (ticket) => { setSelectedTicket(ticket); setPage('ticket-details'); setNotice(''); };
   const tickets = dashboard?.tickets || [];
 
   return <div className="app-shell">
@@ -145,13 +147,14 @@ function App() {
 
     <main className="main-area">
       <header className="topbar">
-        <div className="crumb"><span>Northstar Group</span><span className="crumb-slash">/</span><b>{navItems.find((item) => item.id === page)?.label || 'AI analysis'}</b></div>
+        <div className="crumb"><span>Northstar Group</span><span className="crumb-slash">/</span><b>{navItems.find((item) => item.id === page)?.label || (page === 'ticket-details' ? 'Ticket details' : 'AI analysis')}</b></div>
         <div className="top-actions"><span className={`connection-pill ${health?.status === 'ok' ? 'connected' : ''}`}><span /> {health?.status === 'ok' ? 'API connected' : 'API offline'}</span><button className="icon-button" aria-label="Help"><CircleHelp size={18} /></button><span className="avatar top-avatar">AM</span></div>
       </header>
       <div className="page-content">
         {notice && <div className="notice" role="status"><CheckCircle2 size={17} /><span>{notice}</span><button aria-label="Dismiss" onClick={() => setNotice('')}><X size={16} /></button></div>}
-        {page === 'overview' && <Overview dashboard={dashboard} health={health} tickets={tickets} onNavigate={openPage} onAsk={() => openPage('self-service')} />}
-        {page === 'tickets' && <Tickets tickets={tickets} filter={ticketFilter} setFilter={setTicketFilter} />}
+        {page === 'overview' && <Overview dashboard={dashboard} health={health} tickets={tickets} onNavigate={openPage} onAsk={() => openPage('self-service')} onOpenTicket={openTicket} />}
+        {page === 'tickets' && <Tickets tickets={tickets} filter={ticketFilter} setFilter={setTicketFilter} onOpenTicket={openTicket} />}
+        {page === 'ticket-details' && selectedTicket && <TicketDetails ticket={selectedTicket} onBack={() => openPage('tickets')} />}
         {page === 'self-service' && <SelfService messages={chatMessages} input={chatInput} setInput={setChatInput} onSubmit={submitChat} busy={busy} onCreateTicket={() => openPage('analysis')} />}
         {page === 'knowledge' && <Knowledge query={query} setQuery={setQuery} results={searchResults} onSearch={searchKnowledge} busy={busy} />}
         {page === 'automations' && <Automations onRun={runAutomation} busy={busy} />}
@@ -166,7 +169,7 @@ function PageHeading({ eyebrow, title, subtitle, action }) {
   return <div className="page-heading"><div><div className="eyebrow">{eyebrow}</div><h1>{title}</h1><p>{subtitle}</p></div>{action}</div>;
 }
 
-function Overview({ dashboard, health, tickets, onNavigate, onAsk }) {
+function Overview({ dashboard, health, tickets, onNavigate, onAsk, onOpenTicket }) {
   const metrics = dashboard?.metrics || { open_tickets: '—', resolved_today: '—', automation_rate: '—', avg_resolution: '—' };
   const metricCards = [
     { label: 'Open tickets', value: metrics.open_tickets, delta: 'Needs attention', icon: Ticket, tone: 'blue' },
@@ -180,7 +183,7 @@ function Overview({ dashboard, health, tickets, onNavigate, onAsk }) {
     <div className="metric-grid">{metricCards.map(({ label, value, delta, icon: Icon, tone }) => <div className="metric-card" key={label}><div className="metric-top"><span>{label}</span><span className={`metric-icon ${tone}`}><Icon size={16} /></span></div><div className="metric-value">{value}</div><div className="metric-delta">{delta.includes('+') ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}{delta}</div></div>)}</div>
     <div className="section-title-row"><div><h2>Service desk</h2><span>Live overview of your team's queue</span></div><button className="text-button" onClick={() => onNavigate('tickets')}>View all tickets <ArrowRight size={15} /></button></div>
     <div className="overview-grid">
-      <section className="table-panel"><div className="panel-toolbar"><div><b>Recent tickets</b><span className="subtle-count">{tickets.length} active records</span></div><button className="filter-button" onClick={() => onNavigate('tickets')}><ListFilter size={15} /> Filter</button></div><TicketTable tickets={tickets.slice(0, 5)} compact /></section>
+      <section className="table-panel"><div className="panel-toolbar"><div><b>Recent tickets</b><span className="subtle-count">{tickets.length} active records</span></div><button className="filter-button" onClick={() => onNavigate('tickets')}><ListFilter size={15} /> Filter</button></div><TicketTable tickets={tickets.slice(0, 5)} compact onOpenTicket={onOpenTicket} /></section>
       <aside className="right-rail"><div className="assistant-panel"><div className="assistant-head"><div className="assistant-icon"><Bot size={17} /></div><div><b>Ask SORIM.Ai</b><small>Knowledge-backed answers</small></div><span className="live-dot" /></div><p>Resolve an issue or find an approved answer, with sources attached.</p><button className="assistant-cta" onClick={onAsk}>Ask a question <ArrowRight size={15} /></button></div>
         <div className="activity-panel"><div className="panel-toolbar"><b>Recent activity</b><button className="quiet-button" title="Activity"><Activity size={15} /></button></div>{(dashboard?.activity || []).slice(0, 4).map((item, index) => <div className="activity-item" key={`${item.label}-${index}`}><span className={`activity-mark ${item.kind}`}><Check size={12} /></span><div><b>{item.label}</b><small>{item.detail}</small></div><time>{item.time}</time></div>)}</div>
       </aside>
@@ -205,14 +208,70 @@ function Workflow({ icon: Icon, number, title, text, color, onClick }) {
   return <button className="workflow-item" onClick={onClick}><span className={`workflow-icon ${color}`}><Icon size={17} /></span><span className="workflow-copy"><span className="workflow-number">{number} / WORKFLOW</span><b>{title}</b><small>{text}</small></span><ArrowRight className="workflow-arrow" size={16} /></button>;
 }
 
-function TicketTable({ tickets, compact = false }) {
+function TicketTable({ tickets, compact = false, onOpenTicket }) {
   if (!tickets.length) return <div className="empty-state">No tickets to show yet.</div>;
-  return <div className={`table-scroll ${compact ? 'compact' : ''}`}><table><thead><tr><th>Ticket</th><th>Requester</th><th>Category</th><th>Priority</th><th>Status</th><th>Assigned to</th></tr></thead><tbody>{tickets.map((ticket) => <tr key={ticket.id}><td><b className="ticket-id">{ticket.id}</b><span className="ticket-title">{ticket.title}</span></td><td>{ticket.requester}</td><td>{ticket.category}</td><td><span className={`priority ${ticket.priority.toLowerCase()}`}><i />{ticket.priority}</span></td><td><span className={`status-tag ${ticket.status.toLowerCase().replaceAll(' ', '-')}`}>{ticket.status}</span></td><td>{ticket.assigned_to}</td></tr>)}</tbody></table></div>;
+
+  return (
+    <div className={`table-scroll ${compact ? 'compact' : ''}`}>
+      <table>
+        <thead>
+          <tr>
+            <th>Ticket</th><th>Requester</th><th>Category</th>
+            <th>Priority</th><th>Status</th><th>Assigned to</th>
+          </tr>
+        </thead>
+        <tbody>
+          {tickets.map((ticket) => (
+            <tr key={ticket.id} onClick={() => onOpenTicket?.(ticket)}
+              onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') onOpenTicket?.(ticket); }}
+              tabIndex={onOpenTicket ? 0 : undefined}
+              style={{ cursor: onOpenTicket ? 'pointer' : 'default' }}>
+              <td><b className="ticket-id">{ticket.id}</b><span className="ticket-title">{ticket.title}</span></td>
+              <td>{ticket.requester}</td>
+              <td>{ticket.category}</td>
+              <td><span className={`priority ${(ticket.priority || '').toLowerCase()}`}><i />{ticket.priority || '—'}</span></td>
+              <td><span className={`status-tag ${(ticket.status || '').toLowerCase().replaceAll(' ', '-')}`}>{ticket.status || '—'}</span></td>
+              <td>{ticket.assigned_to || '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
-function Tickets({ tickets, filter, setFilter }) {
+function Tickets({ tickets, filter, setFilter, onOpenTicket }) {
   const visible = filter === 'All tickets' ? tickets : tickets.filter((ticket) => filter === 'Open' ? !['Resolved', 'Closed'].includes(ticket.status) : ticket.status === filter);
-  return <><PageHeading eyebrow="SERVICE DESK" title="Tickets" subtitle="Track incidents and requests from intake through resolution." action={<button className="button button-primary" onClick={() => window.dispatchEvent(new CustomEvent('navigate-analysis'))}><Plus size={16} /> New ticket</button>} /><div className="filter-tabs">{['All tickets', 'Open', 'Resolved', 'Provisioning'].map((item) => <button className={filter === item ? 'selected' : ''} key={item} onClick={() => setFilter(item)}>{item}</button>)}</div><section className="table-panel full-table"><div className="panel-toolbar"><div><b>Ticket queue</b><span className="subtle-count">{visible.length} records</span></div><button className="filter-button"><ListFilter size={15} /> Sort: newest</button></div><TicketTable tickets={visible} /></section></>;
+  return <>
+    <PageHeading eyebrow="SERVICE DESK" title="Tickets" subtitle="Track incidents and requests from intake through resolution."
+      action={<button className="button button-primary" onClick={() => window.dispatchEvent(new CustomEvent('navigate-analysis'))}><Plus size={16} /> New ticket</button>} />
+    <div className="filter-tabs">{['All tickets', 'Open', 'Resolved', 'Provisioning'].map((item) => <button className={filter === item ? 'selected' : ''} key={item} onClick={() => setFilter(item)}>{item}</button>)}</div>
+    <section className="table-panel full-table">
+      <div className="panel-toolbar"><div><b>Ticket queue</b><span className="subtle-count">{visible.length} records</span></div><button className="filter-button"><ListFilter size={15} /> Sort: newest</button></div>
+      <TicketTable tickets={visible} onOpenTicket={onOpenTicket} />
+    </section>
+  </>;
+}
+
+function TicketDetails({ ticket, onBack }) {
+  const fields = [
+    ['Requester', ticket.requester], ['Category', ticket.category],
+    ['Priority', ticket.priority], ['Status', ticket.status],
+    ['Assigned to', ticket.assigned_to], ['Created', ticket.created_at || ticket.created || 'Not available']
+  ];
+
+  return <>
+    <PageHeading eyebrow="SERVICE DESK / TICKET DETAILS" title={ticket.id || 'Ticket details'}
+      subtitle={ticket.title || 'Ticket information'}
+      action={<button className="button button-outline" onClick={onBack}><ArrowRight size={15} style={{ transform: 'rotate(180deg)' }} /> Back to tickets</button>} />
+    <section className="table-panel" style={{ padding: '24px', marginTop: '20px' }}>
+      <div className="panel-toolbar"><div><b>Ticket information</b><span className="subtle-count">Full details</span></div></div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '20px', paddingTop: '20px' }}>
+        {fields.map(([label, value]) => <div key={label}><div className="eyebrow">{label}</div><b style={{ display: 'block', marginTop: '8px' }}>{value || 'Not available'}</b></div>)}
+      </div>
+      <div style={{ marginTop: '28px' }}><div className="eyebrow">DESCRIPTION</div><p style={{ lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{ticket.description || ticket.title || 'No description is available for this ticket.'}</p></div>
+    </section>
+  </>;
 }
 
 function SelfService({ messages, input, setInput, onSubmit, busy, onCreateTicket }) {
